@@ -1,0 +1,10 @@
+{
+    "java.project.sourcePaths": [
+        "src"
+    ],
+    "code-runner.executorMap": {
+        "java": "cd \"$workspaceRoot\" && javac -d bin -sourcepath src src/com/hostelhub/Main.java && java -cp bin com.hostelhub.Main"
+    },
+    "code-runner.runInTerminal": true,
+    "code-runner.clearPreviousOutput": true
+}
