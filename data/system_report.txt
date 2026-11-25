@@ -2,27 +2,37 @@
                  HOSTELHUB - COMPREHENSIVE AUDIT REPORT                 
 ========================================================================
 
-Total Hostels: 2 | Total Beds: 16 | Occupied: 2 | Available Beds: 14
-Total Staff: 3 | Total Students: 4 (Allocated: 2 | Queue: 1 | Waitlist: 1)
+Total Hostels: 2 | Total Beds: 28 | Occupied: 0 | Available Beds: 28
+Total Staff: 7 | Total Students: 4 (Allocated: 2 | Queue: 1 | Waitlist: 1)
+Total Complaints: 0 | Gate Passes: 0 | Payments Processed: 0
 
 ---------------------------- STAFF ROSTER ------------------------------
-ID: EMP-WRD-01 | Dr. Rajesh Sharma | Role: WARDEN       | Assigned Hostel: Aryabhatta Boys Hostel | Shift: Day Shift
+ID: EMP-WRD-01 | Dr. Rajesh Sharma | Role: WARDEN       | Hostel: Aryabhatta Boys Hostel | Shift: Morning Shift
+ID: EMP-WRD-02 | Dr. Priya Saxena | Role: ASSISTANT_WARDEN | Hostel: Gargi Girls Hostel     | Shift: Evening Shift
 ID: EMP-CT-01  | Suresh Kumar     | Role: CARETAKER    | Assigned: Aryabhatta Boys Hostel (Floor 1) | Shift: Morning
 ID: EMP-CT-02  | Ramesh Yadav     | Role: CARETAKER    | Assigned: Aryabhatta Boys Hostel (Floor 2) | Shift: Evening
+ID: EMP-CT-03  | Mahesh Verma     | Role: CARETAKER    | Assigned: Aryabhatta Boys Hostel (Floor 3) | Shift: Night
+ID: EMP-CT-04  | Anita Devi       | Role: CARETAKER    | Assigned: Gargi Girls Hostel (Floor 1) | Shift: Morning
+ID: EMP-CT-05  | Rekha Sharma     | Role: CARETAKER    | Assigned: Gargi Girls Hostel (Floor 2) | Shift: Evening
 
 --------------------------- HOSTEL DETAILS -----------------------------
-Hostel [BH1] Aryabhatta Boys Hostel (MALE) - Warden: EMP-WRD-01 | Beds: 1/11 (Available: 10)
-   Floor 1 (Rooms: 2, Caretaker: EMP-CT-01)
-      Room 101: 2-Seater | AC | ATTACHED | Occupied: 1/2 (Free: 1) | Fee: Rs. 73000 | Students: [2024CS01]
+Hostel [BH1] Aryabhatta Boys Hostel (MALE) - Warden: EMP-WRD-01 | Beds: 0/18 (Available: 18)
+   Floor 1 (Rooms: 3, Caretaker: EMP-CT-01)
+      Room 101: 2-Seater | AC | ATTACHED | Occupied: 0/2 (Free: 2) | Fee: Rs. 73000 | Students: None
       Room 102: 3-Seater | NON_AC | COMMON | Occupied: 0/3 (Free: 3) | Fee: Rs. 40000 | Students: None
-   Floor 2 (Rooms: 2, Caretaker: EMP-CT-02)
+      Room 103: 4-Seater | NON_AC | COMMON | Occupied: 0/4 (Free: 4) | Fee: Rs. 32000 | Students: None
+   Floor 2 (Rooms: 3, Caretaker: EMP-CT-02)
       Room 201: 2-Seater | AC | ATTACHED | Occupied: 0/2 (Free: 2) | Fee: Rs. 73000 | Students: None
-      Room 202: 4-Seater | NON_AC | COMMON | Occupied: 0/4 (Free: 4) | Fee: Rs. 32000 | Students: None
+      Room 202: 3-Seater | AC | COMMON | Occupied: 0/3 (Free: 3) | Fee: Rs. 55000 | Students: None
+      Room 203: 4-Seater | NON_AC | COMMON | Occupied: 0/4 (Free: 4) | Fee: Rs. 32000 | Students: None
 
-Hostel [GH1] Gargi Girls Hostel (FEMALE) - Warden: Unassigned | Beds: 1/5 (Available: 4)
-   Floor 1 (Rooms: 2, Caretaker: EMP-CT-03)
-      Room G101: 2-Seater | AC | ATTACHED | Occupied: 1/2 (Free: 1) | Fee: Rs. 73000 | Students: [2024EC01]
+Hostel [GH1] Gargi Girls Hostel (FEMALE) - Warden: EMP-WRD-02 | Beds: 0/10 (Available: 10)
+   Floor 1 (Rooms: 2, Caretaker: EMP-CT-04)
+      Room G101: 2-Seater | AC | ATTACHED | Occupied: 0/2 (Free: 2) | Fee: Rs. 73000 | Students: None
       Room G102: 3-Seater | NON_AC | COMMON | Occupied: 0/3 (Free: 3) | Fee: Rs. 40000 | Students: None
+   Floor 2 (Rooms: 2, Caretaker: EMP-CT-05)
+      Room G201: 2-Seater | AC | ATTACHED | Occupied: 0/2 (Free: 2) | Fee: Rs. 73000 | Students: None
+      Room G202: 3-Seater | AC | ATTACHED | Occupied: 0/3 (Free: 3) | Fee: Rs. 63000 | Students: None
 
 --------------------------- STUDENT ROSTER -----------------------------
 Roll: 2024CS01   | Name: Aman Verma       | Gender: MALE   | Dist:  145.0 km | Status: Allocated in Aryabhatta Boys Hostel (Room 101)

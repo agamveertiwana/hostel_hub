@@ -1,39 +1,101 @@
 package com.hostelhub.service;
 
+import com.hostelhub.exception.*;
 import com.hostelhub.model.*;
+import com.hostelhub.storage.DataInitializer;
+import com.hostelhub.storage.FileStorageService;
+import com.hostelhub.storage.StorageEngine;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.time.LocalDateTime;
 import java.util.*;
 
 /**
- * Service managing all runtime data, file persistence, and business operations for HostelHub.
+ * Core business service orchestrating all operations:
+ * - Room Allocation with 30 km Rule & Custom Exceptions
+ * - Staff Management (Wardens & Caretakers)
+ * - Complaints & Maintenance
+ * - Gate Passes (Day out / Night out)
+ * - Fee Payments & Refunds (Strategy Pattern)
+ * - Transparent CSV File Persistence
  */
 public class HostelService {
-    private static final String DATA_FILE = "data" + File.separator + "hostelhub_state.dat";
-
+    private StorageEngine storage;
     private List<Hostel> hostels;
     private Map<String, Student> studentsByRollNumber;
     private Map<String, Staff> staffByEmployeeId;
+    private List<Complaint> complaints;
+    private List<GatePass> gatePasses;
+    private List<PaymentTransaction> payments;
+
     private List<Student> waitlistLocalites; // Distance <= 30 km
     private Queue<Student> allocationQueue;  // Distance > 30 km (FCFS)
 
     public HostelService() {
+        this.storage = new FileStorageService();
         this.hostels = new ArrayList<>();
         this.studentsByRollNumber = new LinkedHashMap<>();
         this.staffByEmployeeId = new LinkedHashMap<>();
+        this.complaints = new ArrayList<>();
+        this.gatePasses = new ArrayList<>();
+        this.payments = new ArrayList<>();
         this.waitlistLocalites = new ArrayList<>();
         this.allocationQueue = new LinkedList<>();
-        // Auto-load previously saved state from disk if it exists
-        loadDataFromDisk();
+
+        // Ensure default data exists on disk
+        DataInitializer.initializeDefaultDataIfEmpty(storage);
+
+        // Load all data from transparent CSV files
+        loadAllData();
     }
 
-    // --- HOSTEL OPERATIONS ---
-
-    public void addHostel(Hostel hostel) {
-        if (findHostelById(hostel.getHostelId()) == null) {
-            hostels.add(hostel);
-            saveDataToDisk();
+    public void loadAllData() {
+        this.staffByEmployeeId.clear();
+        for (Staff s : storage.loadStaff()) {
+            this.staffByEmployeeId.put(s.getEmployeeId().toUpperCase(), s);
         }
+
+        this.hostels = storage.loadHostels();
+
+        this.studentsByRollNumber.clear();
+        this.waitlistLocalites.clear();
+        this.allocationQueue.clear();
+        for (Student s : storage.loadStudents()) {
+            this.studentsByRollNumber.put(s.getRollNumber().toUpperCase(), s);
+            if (!s.hasRoomAllocated()) {
+                if (s.isLocalite()) {
+                    this.waitlistLocalites.add(s);
+                } else {
+                    this.allocationQueue.add(s);
+                }
+            }
+        }
+
+        this.complaints = storage.loadComplaints();
+        this.gatePasses = storage.loadGatePasses();
+        this.payments = storage.loadPayments();
+    }
+
+    public void persistAll() {
+        storage.saveHostels(hostels);
+        storage.saveStaff(staffByEmployeeId.values());
+        storage.saveStudents(studentsByRollNumber.values());
+        storage.saveComplaints(complaints);
+        storage.saveGatePasses(gatePasses);
+        storage.savePayments(payments);
+    }
+
+    // --- HOSTEL & ROOM OPERATIONS ---
+
+    public void addHostel(Hostel hostel) throws DuplicateRecordException {
+        if (findHostelById(hostel.getHostelId()) != null) {
+            throw new DuplicateRecordException("Hostel", hostel.getHostelId());
+        }
+        hostels.add(hostel);
+        persistAll();
     }
 
     public Hostel findHostelById(String hostelId) {
@@ -50,24 +112,15 @@ public class HostelService {
         return hostels;
     }
 
-    public Room findRoomAcrossHostels(String hostelId, String roomId) {
-        Hostel hostel = findHostelById(hostelId);
-        if (hostel != null) {
-            return hostel.findRoom(roomId);
-        }
-        return null;
-    }
-
     // --- STAFF OPERATIONS ---
 
-    public boolean registerStaff(Staff staff) {
+    public void registerStaff(Staff staff) throws DuplicateRecordException {
         String empKey = staff.getEmployeeId().trim().toUpperCase();
         if (staffByEmployeeId.containsKey(empKey)) {
-            return false;
+            throw new DuplicateRecordException("Staff", empKey);
         }
         staffByEmployeeId.put(empKey, staff);
-        saveDataToDisk();
-        return true;
+        persistAll();
     }
 
     public Staff findStaffByEmployeeId(String employeeId) {
@@ -81,69 +134,53 @@ public class HostelService {
 
     public String assignWardenToHostel(String employeeId, String hostelId) {
         Staff staff = findStaffByEmployeeId(employeeId);
-        if (staff == null) {
-            return "ERROR: Staff with Employee ID '" + employeeId + "' does not exist!";
-        }
-        if (!(staff instanceof Warden)) {
-            return "ERROR: " + staff.getName() + " is a " + staff.getRole() + ", not a Warden!";
-        }
+        if (staff == null) return "ERROR: Staff ID '" + employeeId + "' not found!";
+        if (!(staff instanceof Warden)) return "ERROR: " + staff.getName() + " is not a Warden!";
 
         Hostel hostel = findHostelById(hostelId);
-        if (hostel == null) {
-            return "ERROR: Hostel ID '" + hostelId + "' does not exist!";
-        }
+        if (hostel == null) return "ERROR: Hostel ID '" + hostelId + "' not found!";
 
-        Warden warden = (Warden) staff;
-        warden.setAssignedHostelName(hostel.getName());
-        hostel.setWardenEmployeeId(warden.getEmployeeId());
-        saveDataToDisk();
-        return "SUCCESS: Assigned Warden " + warden.getName() + " (" + warden.getEmployeeId() + ") to " + hostel.getName() + "!";
+        Warden w = (Warden) staff;
+        w.setAssignedHostelName(hostel.getName());
+        hostel.setWardenEmployeeId(w.getEmployeeId());
+        persistAll();
+        return "SUCCESS: Assigned Warden " + w.getName() + " to " + hostel.getName() + "!";
     }
 
     public String assignCaretakerToFloor(String employeeId, String hostelId, int floorNumber) {
         Staff staff = findStaffByEmployeeId(employeeId);
-        if (staff == null) {
-            return "ERROR: Staff with Employee ID '" + employeeId + "' does not exist!";
-        }
-        if (!(staff instanceof Caretaker)) {
-            return "ERROR: " + staff.getName() + " is a " + staff.getRole() + ", not a Caretaker!";
-        }
+        if (staff == null) return "ERROR: Staff ID '" + employeeId + "' not found!";
+        if (!(staff instanceof Caretaker)) return "ERROR: " + staff.getName() + " is not a Caretaker!";
 
         Hostel hostel = findHostelById(hostelId);
-        if (hostel == null) {
-            return "ERROR: Hostel ID '" + hostelId + "' does not exist!";
-        }
+        if (hostel == null) return "ERROR: Hostel ID '" + hostelId + "' not found!";
 
         Floor floor = hostel.getFloor(floorNumber);
-        if (floor == null) {
-            return "ERROR: Floor " + floorNumber + " does not exist in " + hostel.getName() + "!";
-        }
+        if (floor == null) return "ERROR: Floor " + floorNumber + " not found in " + hostel.getName() + "!";
 
-        Caretaker caretaker = (Caretaker) staff;
-        caretaker.setAssignedHostelName(hostel.getName());
-        caretaker.setAssignedFloorNumber(floorNumber);
-        floor.setCaretakerEmployeeId(caretaker.getEmployeeId());
-        saveDataToDisk();
-        return "SUCCESS: Assigned Caretaker " + caretaker.getName() + " (" + caretaker.getEmployeeId()
-                + ") to " + hostel.getName() + " - Floor " + floorNumber + "!";
+        Caretaker ct = (Caretaker) staff;
+        ct.setAssignedHostelName(hostel.getName());
+        ct.setAssignedFloorNumber(floorNumber);
+        floor.setCaretakerEmployeeId(ct.getEmployeeId());
+        persistAll();
+        return "SUCCESS: Assigned Caretaker " + ct.getName() + " to " + hostel.getName() + " (Floor " + floorNumber + ")!";
     }
 
-    // --- STUDENT OPERATIONS ---
+    // --- STUDENT OPERATIONS & 30KM PRIORITY ---
 
-    public boolean registerStudent(Student student) {
-        String rollKey = student.getRollNumber().trim().toUpperCase();
-        if (studentsByRollNumber.containsKey(rollKey)) {
-            return false;
+    public boolean registerStudent(Student student) throws DuplicateRecordException {
+        String roll = student.getRollNumber().trim().toUpperCase();
+        if (studentsByRollNumber.containsKey(roll)) {
+            throw new DuplicateRecordException("Student", roll);
         }
 
-        studentsByRollNumber.put(rollKey, student);
-
+        studentsByRollNumber.put(roll, student);
         if (student.isLocalite()) {
             waitlistLocalites.add(student);
         } else {
             allocationQueue.add(student);
         }
-        saveDataToDisk();
+        persistAll();
         return true;
     }
 
@@ -164,43 +201,42 @@ public class HostelService {
         return allocationQueue;
     }
 
-    // --- ALLOCATION LOGIC ---
+    // --- ALLOCATION LOGIC WITH CUSTOM EXCEPTIONS ---
 
-    public String allocateRoom(String rollNumber, String hostelId, String roomId) {
+    public String allocateRoom(String rollNumber, String hostelId, String roomId)
+            throws StudentNotFoundException, RoomFullException, IneligibleDistanceException, HostelException {
+
         Student student = findStudentByRoll(rollNumber);
         if (student == null) {
-            return "ERROR: Student with Roll Number '" + rollNumber + "' was not found!";
+            throw new StudentNotFoundException(rollNumber);
         }
 
         if (student.hasRoomAllocated()) {
-            return "ERROR: Student is already allocated to Room " + student.getAllocatedRoomId() + " in " + student.getAllocatedHostelName() + "!";
+            throw new HostelException("Student is already allocated to Room " + student.getAllocatedRoomId() + " in " + student.getAllocatedHostelName() + "!");
         }
 
         Hostel hostel = findHostelById(hostelId);
         if (hostel == null) {
-            return "ERROR: Hostel ID '" + hostelId + "' does not exist!";
+            throw new HostelException("Hostel ID '" + hostelId + "' does not exist!");
         }
 
-        // Gender validation
         if (student.getGender() != hostel.getAllowedGender()) {
-            return "ERROR: Gender mismatch! " + student.getName() + " is " + student.getGender()
-                    + ", but " + hostel.getName() + " is strictly for " + hostel.getAllowedGender() + " students!";
+            throw new HostelException("Gender mismatch! " + student.getName() + " is " + student.getGender()
+                    + ", but " + hostel.getName() + " is for " + hostel.getAllowedGender() + " students only!");
         }
 
         Room room = hostel.findRoom(roomId);
         if (room == null) {
-            return "ERROR: Room '" + roomId + "' does not exist in " + hostel.getName() + "!";
+            throw new HostelException("Room '" + roomId + "' does not exist in " + hostel.getName() + "!");
         }
 
         if (room.isFull()) {
-            return "ERROR: Room '" + roomId + "' is completely full (Capacity: " + room.getCapacity() + ")!";
+            throw new RoomFullException(roomId, room.getCapacity());
         }
 
         // 30 km rule check
         if (student.isLocalite() && !allocationQueue.isEmpty()) {
-            return "NOTICE: Student lives <= 30 km (" + student.getDistanceFromCollege() + " km). "
-                    + "There are still " + allocationQueue.size() + " outstation students in the priority queue. "
-                    + "Rooms are reserved for > 30 km students first!";
+            throw new IneligibleDistanceException(student.getRollNumber(), student.getDistanceFromCollege(), 30.0);
         }
 
         boolean success = room.allocateStudent(student.getRollNumber());
@@ -209,7 +245,7 @@ public class HostelService {
             student.setAllocatedRoomId(room.getRoomId());
             allocationQueue.remove(student);
             waitlistLocalites.remove(student);
-            saveDataToDisk();
+            persistAll();
             return "SUCCESS: Allocated Room " + room.getRoomId() + " in " + hostel.getName()
                     + " to " + student.getName() + " (Fee: Rs. " + String.format("%.0f", room.calculateSemesterFee()) + ")!";
         }
@@ -217,88 +253,75 @@ public class HostelService {
         return "ERROR: Allocation failed.";
     }
 
-    // --- SAMPLE DATA LOAD ---
-    public void loadSampleData() {
-        // Sample Staff
-        if (findStaffByEmployeeId("EMP-WRD-01") == null) {
-            Warden w1 = new Warden("W01", "Dr. Rajesh Sharma", "9876543210", "rajesh.wrd@college.edu",
-                    Gender.MALE, "EMP-WRD-01", "Day Shift", "Aryabhatta Boys Hostel", false);
-            registerStaff(w1);
-        }
+    // --- COMPLAINTS & GRIEVANCE OPERATIONS ---
 
-        if (findStaffByEmployeeId("EMP-CT-01") == null) {
-            Caretaker ct1 = new Caretaker("C01", "Suresh Kumar", "9123456780", "suresh.ct@college.edu",
-                    Gender.MALE, "EMP-CT-01", "Morning", "Aryabhatta Boys Hostel", 1);
-            registerStaff(ct1);
-        }
-
-        if (findStaffByEmployeeId("EMP-CT-02") == null) {
-            Caretaker ct2 = new Caretaker("C02", "Ramesh Yadav", "9123456782", "ramesh.ct@college.edu",
-                    Gender.MALE, "EMP-CT-02", "Evening", "Aryabhatta Boys Hostel", 2);
-            registerStaff(ct2);
-        }
-
-        // Sample Hostel 1: Boys
-        if (findHostelById("BH1") == null) {
-            Hostel bh1 = new Hostel("BH1", "Aryabhatta Boys Hostel", Gender.MALE);
-            bh1.setWardenEmployeeId("EMP-WRD-01");
-
-            Floor f1 = new Floor(1);
-            f1.addRoom(new Room("101", 1, 2, RoomType.AC, WashroomType.ATTACHED));
-            f1.addRoom(new Room("102", 1, 3, RoomType.NON_AC, WashroomType.COMMON));
-            f1.setCaretakerEmployeeId("EMP-CT-01");
-            bh1.addFloor(f1);
-
-            Floor f2 = new Floor(2);
-            f2.addRoom(new Room("201", 2, 2, RoomType.AC, WashroomType.ATTACHED));
-            f2.addRoom(new Room("202", 2, 4, RoomType.NON_AC, WashroomType.COMMON));
-            f2.setCaretakerEmployeeId("EMP-CT-02");
-            bh1.addFloor(f2);
-            addHostel(bh1);
-        }
-
-        // Sample Hostel 2: Girls
-        if (findHostelById("GH1") == null) {
-            Hostel gh1 = new Hostel("GH1", "Gargi Girls Hostel", Gender.FEMALE);
-            Floor gf1 = new Floor(1);
-            gf1.addRoom(new Room("G101", 1, 2, RoomType.AC, WashroomType.ATTACHED));
-            gf1.addRoom(new Room("G102", 1, 3, RoomType.NON_AC, WashroomType.COMMON));
-            gf1.setCaretakerEmployeeId("EMP-CT-03");
-            gh1.addFloor(gf1);
-            addHostel(gh1);
-        }
-
-        // Sample Students
-        if (findStudentByRoll("2024CS01") == null) {
-            Student s1 = new Student("2024CS01", "Aman Verma", "9988776655", "aman@student.edu",
-                    Gender.MALE, "Computer Science", 1, 145.0);
-            registerStudent(s1);
-            allocateRoom("2024CS01", "BH1", "101");
-        }
-
-        if (findStudentByRoll("2024EC01") == null) {
-            Student s2 = new Student("2024EC01", "Priya Sharma", "9876543211", "priya@student.edu",
-                    Gender.FEMALE, "Electronics", 1, 85.0);
-            registerStudent(s2);
-            allocateRoom("2024EC01", "GH1", "G101");
-        }
-
-        if (findStudentByRoll("2024ME01") == null) {
-            Student s3 = new Student("2024ME01", "Vikram Singh", "9123456781", "vikram@student.edu",
-                    Gender.MALE, "Mechanical", 1, 210.0);
-            registerStudent(s3);
-        }
-
-        if (findStudentByRoll("2024CS02") == null) {
-            Student s4 = new Student("2024CS02", "Rohit Mehta", "9871234560", "rohit@student.edu",
-                    Gender.MALE, "Civil", 1, 18.0);
-            registerStudent(s4);
-        }
-
-        saveDataToDisk();
+    public void fileComplaint(String roll, String hostelId, String roomId, ComplaintType type, ComplaintPriority priority, String description) {
+        String cid = "CMP-" + (complaints.size() + 101);
+        Complaint c = new Complaint(cid, roll, hostelId, roomId, type, priority, description);
+        complaints.add(c);
+        persistAll();
     }
 
-    // --- SYSTEM AUDIT REPORT ---
+    public List<Complaint> getAllComplaints() {
+        return complaints;
+    }
+
+    public boolean resolveComplaint(String complaintId, String staffId, String notes) {
+        for (Complaint c : complaints) {
+            if (c.getComplaintId().equalsIgnoreCase(complaintId)) {
+                c.resolve(staffId, notes);
+                persistAll();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // --- GATE PASS OPERATIONS ---
+
+    public void applyGatePass(GatePass pass) {
+        gatePasses.add(pass);
+        persistAll();
+    }
+
+    public List<GatePass> getAllGatePasses() {
+        return gatePasses;
+    }
+
+    public boolean approveGatePass(String passId, String wardenId) {
+        for (GatePass gp : gatePasses) {
+            if (gp.getPassId().equalsIgnoreCase(passId)) {
+                gp.approve(wardenId);
+                persistAll();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // --- FEE PAYMENTS & REFUNDS (STRATEGY PATTERN) ---
+
+    public Receipt processFeePayment(String roll, double amount, PaymentMode mode, String note) throws StudentNotFoundException {
+        Student student = findStudentByRoll(roll);
+        if (student == null) throw new StudentNotFoundException(roll);
+
+        String txnId = "TXN-" + System.currentTimeMillis() % 100000;
+        PaymentTransaction txn = new PaymentTransaction(txnId, roll, amount, mode, note);
+        payments.add(txn);
+        persistAll();
+
+        String receiptNo = "REC-" + (payments.size() + 500);
+        return new Receipt(receiptNo, txnId, roll, student.getName(),
+                student.getAllocatedHostelName() == null ? "HostelHub" : student.getAllocatedHostelName(),
+                student.getAllocatedRoomId() == null ? "N/A" : student.getAllocatedRoomId(), amount);
+    }
+
+    public double calculateVacatingRefund(double totalPaidFee, double securityDeposit, int monthsUsed, RefundPolicy policy) {
+        return policy.calculateRefund(totalPaidFee, securityDeposit, monthsUsed, 6);
+    }
+
+    // --- AUDIT REPORT & TEXT EXPORT ---
+
     public String generateSystemAuditReport() {
         StringBuilder sb = new StringBuilder();
         sb.append("========================================================================\n");
@@ -315,69 +338,57 @@ public class HostelService {
 
         sb.append(String.format("Total Hostels: %d | Total Beds: %d | Occupied: %d | Available Beds: %d%n",
                 hostels.size(), totalCapacity, totalOccupied, totalAvailable));
-        sb.append(String.format("Total Staff: %d | Total Students: %d (Allocated: %d | Queue: %d | Waitlist: %d)%n%n",
-                staffByEmployeeId.size(),
-                studentsByRollNumber.size(),
+        sb.append(String.format("Total Staff: %d | Total Students: %d (Allocated: %d | Queue: %d | Waitlist: %d)%n",
+                staffByEmployeeId.size(), studentsByRollNumber.size(),
                 (studentsByRollNumber.size() - allocationQueue.size() - waitlistLocalites.size()),
-                allocationQueue.size(),
-                waitlistLocalites.size()));
+                allocationQueue.size(), waitlistLocalites.size()));
+        sb.append(String.format("Total Complaints: %d | Gate Passes: %d | Payments Processed: %d%n%n",
+                complaints.size(), gatePasses.size(), payments.size()));
 
         sb.append("---------------------------- STAFF ROSTER ------------------------------\n");
-        if (staffByEmployeeId.isEmpty()) {
-            sb.append("No staff registered yet.\n\n");
-        } else {
-            for (Staff st : staffByEmployeeId.values()) {
-                if (st instanceof Warden) {
-                    Warden w = (Warden) st;
-                    sb.append(String.format("ID: %-10s | %-16s | Role: %-12s | Assigned Hostel: %s | Shift: %s%n",
-                            w.getEmployeeId(), w.getName(), w.getRole(),
-                            (w.getAssignedHostelName() == null ? "None" : w.getAssignedHostelName()), w.getShift()));
-                } else if (st instanceof Caretaker) {
-                    Caretaker ct = (Caretaker) st;
-                    sb.append(String.format("ID: %-10s | %-16s | Role: %-12s | Assigned: %s (Floor %d) | Shift: %s%n",
-                            ct.getEmployeeId(), ct.getName(), ct.getRole(),
-                            (ct.getAssignedHostelName() == null ? "None" : ct.getAssignedHostelName()),
-                            ct.getAssignedFloorNumber(), ct.getShift()));
+        for (Staff st : staffByEmployeeId.values()) {
+            if (st instanceof Warden) {
+                Warden w = (Warden) st;
+                sb.append(String.format("ID: %-10s | %-16s | Role: %-12s | Hostel: %-22s | Shift: %s%n",
+                        w.getEmployeeId(), w.getName(), w.getRole(),
+                        (w.getAssignedHostelName() == null ? "Unassigned" : w.getAssignedHostelName()), w.getShift()));
+            } else if (st instanceof Caretaker) {
+                Caretaker ct = (Caretaker) st;
+                sb.append(String.format("ID: %-10s | %-16s | Role: %-12s | Assigned: %s (Floor %d) | Shift: %s%n",
+                        ct.getEmployeeId(), ct.getName(), ct.getRole(),
+                        (ct.getAssignedHostelName() == null ? "Unassigned" : ct.getAssignedHostelName()),
+                        ct.getAssignedFloorNumber(), ct.getShift()));
+            }
+        }
+        sb.append("\n");
+
+        sb.append("--------------------------- HOSTEL DETAILS -----------------------------\n");
+        for (Hostel h : hostels) {
+            sb.append(String.format("Hostel [%s] %s (%s) - Warden: %s | Beds: %d/%d (Available: %d)%n",
+                    h.getHostelId(), h.getName(), h.getAllowedGender(),
+                    (h.getWardenEmployeeId() == null ? "Unassigned" : h.getWardenEmployeeId()),
+                    h.getCurrentOccupancy(), h.getTotalCapacity(), h.getAvailableBeds()));
+            for (Floor f : h.getFloors()) {
+                sb.append(String.format("   Floor %d (Rooms: %d, Caretaker: %s)%n",
+                        f.getFloorNumber(), f.getRooms().size(),
+                        (f.getCaretakerEmployeeId() == null ? "Unassigned" : f.getCaretakerEmployeeId())));
+                for (Room r : f.getRooms()) {
+                    sb.append(String.format("      Room %s: %d-Seater | %s | %s | Occupied: %d/%d (Free: %d) | Fee: Rs. %.0f | Students: %s%n",
+                            r.getRoomId(), r.getCapacity(), r.getRoomType(), r.getWashroomType(),
+                            (r.getCapacity() - r.getAvailableBeds()), r.getCapacity(), r.getAvailableBeds(),
+                            r.calculateSemesterFee(),
+                            r.getStudentRollNumbers().isEmpty() ? "None" : r.getStudentRollNumbers().toString()));
                 }
             }
             sb.append("\n");
         }
 
-        sb.append("--------------------------- HOSTEL DETAILS -----------------------------\n");
-        if (hostels.isEmpty()) {
-            sb.append("No hostels found.\n\n");
-        } else {
-            for (Hostel h : hostels) {
-                sb.append(String.format("Hostel [%s] %s (%s) - Warden: %s | Beds: %d/%d (Available: %d)%n",
-                        h.getHostelId(), h.getName(), h.getAllowedGender(),
-                        (h.getWardenEmployeeId() == null ? "Unassigned" : h.getWardenEmployeeId()),
-                        h.getCurrentOccupancy(), h.getTotalCapacity(), h.getAvailableBeds()));
-                for (Floor f : h.getFloors()) {
-                    sb.append(String.format("   Floor %d (Rooms: %d, Caretaker: %s)%n",
-                            f.getFloorNumber(), f.getRooms().size(),
-                            (f.getCaretakerEmployeeId() == null ? "Unassigned" : f.getCaretakerEmployeeId())));
-                    for (Room r : f.getRooms()) {
-                        sb.append(String.format("      Room %s: %d-Seater | %s | %s | Occupied: %d/%d (Free: %d) | Fee: Rs. %.0f | Students: %s%n",
-                                r.getRoomId(), r.getCapacity(), r.getRoomType(), r.getWashroomType(),
-                                (r.getCapacity() - r.getAvailableBeds()), r.getCapacity(), r.getAvailableBeds(),
-                                r.calculateSemesterFee(),
-                                r.getStudentRollNumbers().isEmpty() ? "None" : r.getStudentRollNumbers().toString()));
-                    }
-                }
-                sb.append("\n");
-            }
-        }
-
         sb.append("--------------------------- STUDENT ROSTER -----------------------------\n");
-        if (studentsByRollNumber.isEmpty()) {
-            sb.append("No students registered.\n");
-        } else {
-            for (Student s : studentsByRollNumber.values()) {
-                sb.append(String.format("Roll: %-10s | Name: %-16s | Gender: %-6s | Dist: %6.1f km | Status: %s%n",
-                        s.getRollNumber(), s.getName(), s.getGender(), s.getDistanceFromCollege(),
-                        s.hasRoomAllocated() ? "Allocated in " + s.getAllocatedHostelName() + " (Room " + s.getAllocatedRoomId() + ")"
-                                : (s.isLocalite() ? "Localite Waitlist (<=30km)" : "Eligible Priority Queue (>30km)")));
-            }
+        for (Student s : studentsByRollNumber.values()) {
+            sb.append(String.format("Roll: %-10s | Name: %-16s | Gender: %-6s | Dist: %6.1f km | Status: %s%n",
+                    s.getRollNumber(), s.getName(), s.getGender(), s.getDistanceFromCollege(),
+                    s.hasRoomAllocated() ? "Allocated in " + s.getAllocatedHostelName() + " (Room " + s.getAllocatedRoomId() + ")"
+                            : (s.isLocalite() ? "Localite Waitlist (<=30km)" : "Eligible Priority Queue (>30km)")));
         }
         sb.append("========================================================================\n");
         return sb.toString();
@@ -388,61 +399,7 @@ public class HostelService {
             writer.print(generateSystemAuditReport());
             return true;
         } catch (IOException e) {
-            System.err.println("Error saving report: " + e.getMessage());
             return false;
-        }
-    }
-
-    // --- PERSISTENCE ---
-    public synchronized void saveDataToDisk() {
-        File dataDir = new File("data");
-        if (!dataDir.exists()) {
-            dataDir.mkdirs();
-        }
-
-        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(DATA_FILE))) {
-            oos.writeObject(hostels);
-            oos.writeObject(new ArrayList<>(studentsByRollNumber.values()));
-            oos.writeObject(new ArrayList<>(staffByEmployeeId.values()));
-            oos.writeObject(waitlistLocalites);
-            oos.writeObject(new ArrayList<>(allocationQueue));
-        } catch (IOException e) {
-            // Log if needed
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    public synchronized void loadDataFromDisk() {
-        File file = new File(DATA_FILE);
-        if (!file.exists()) return;
-
-        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(file))) {
-            List<Hostel> loadedHostels = (List<Hostel>) ois.readObject();
-            List<Student> loadedStudents = (List<Student>) ois.readObject();
-            List<Staff> loadedStaff = (List<Staff>) ois.readObject();
-            List<Student> loadedWaitlist = (List<Student>) ois.readObject();
-            List<Student> loadedQueue = (List<Student>) ois.readObject();
-
-            this.hostels = (loadedHostels != null) ? loadedHostels : new ArrayList<>();
-            this.studentsByRollNumber = new LinkedHashMap<>();
-            if (loadedStudents != null) {
-                for (Student s : loadedStudents) {
-                    this.studentsByRollNumber.put(s.getRollNumber().toUpperCase(), s);
-                }
-            }
-            this.staffByEmployeeId = new LinkedHashMap<>();
-            if (loadedStaff != null) {
-                for (Staff st : loadedStaff) {
-                    this.staffByEmployeeId.put(st.getEmployeeId().toUpperCase(), st);
-                }
-            }
-            this.waitlistLocalites = (loadedWaitlist != null) ? loadedWaitlist : new ArrayList<>();
-            this.allocationQueue = new LinkedList<>();
-            if (loadedQueue != null) {
-                this.allocationQueue.addAll(loadedQueue);
-            }
-        } catch (Exception e) {
-            // Fallback fresh
         }
     }
 
@@ -450,11 +407,19 @@ public class HostelService {
         hostels.clear();
         studentsByRollNumber.clear();
         staffByEmployeeId.clear();
+        complaints.clear();
+        gatePasses.clear();
+        payments.clear();
         waitlistLocalites.clear();
         allocationQueue.clear();
-        File file = new File(DATA_FILE);
-        if (file.exists()) {
-            file.delete();
+
+        File dir = new File("data");
+        if (dir.exists()) {
+            for (File f : dir.listFiles()) {
+                if (f.getName().endsWith(".csv") || f.getName().endsWith(".dat")) {
+                    f.delete();
+                }
+            }
         }
     }
 }

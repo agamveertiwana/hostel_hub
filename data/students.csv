@@ -1,0 +1,5 @@
+RollNumber,Name,Phone,Email,Gender,Department,Year,Distance,AllocatedHostel,AllocatedRoom
+2024CS01,Aman Verma,9988776655,aman@student.edu,MALE,Computer Science,1,145.00,Aryabhatta Boys Hostel,101
+2024EC01,Priya Sharma,9876543211,priya@student.edu,FEMALE,Electronics,1,85.00,Gargi Girls Hostel,G101
+2024ME01,Vikram Singh,9123456781,vikram@student.edu,MALE,Mechanical,1,210.00,,
+2024CS02,Rohit Mehta,9871234560,rohit@student.edu,MALE,Civil,1,18.00,,

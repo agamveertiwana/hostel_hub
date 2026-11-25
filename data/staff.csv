@@ -1,0 +1,8 @@
+EmployeeId,Name,Phone,Email,Gender,Shift,Role,AssignedHostel,AssignedFloor,IsAssistant
+EMP-WRD-01,Dr. Rajesh Sharma,9876543210,rajesh.wrd@college.edu,MALE,Morning Shift,WARDEN,Aryabhatta Boys Hostel,0,false
+EMP-WRD-02,Dr. Priya Saxena,9876543211,priya.wrd@college.edu,FEMALE,Evening Shift,ASSISTANT_WARDEN,Gargi Girls Hostel,0,true
+EMP-CT-01,Suresh Kumar,9123456780,suresh.ct@college.edu,MALE,Morning,CARETAKER,Aryabhatta Boys Hostel,1,false
+EMP-CT-02,Ramesh Yadav,9123456782,ramesh.ct@college.edu,MALE,Evening,CARETAKER,Aryabhatta Boys Hostel,2,false
+EMP-CT-03,Mahesh Verma,9123456783,mahesh.ct@college.edu,MALE,Night,CARETAKER,Aryabhatta Boys Hostel,3,false
+EMP-CT-04,Anita Devi,9123456784,anita.ct@college.edu,FEMALE,Morning,CARETAKER,Gargi Girls Hostel,1,false
+EMP-CT-05,Rekha Sharma,9123456785,rekha.ct@college.edu,FEMALE,Evening,CARETAKER,Gargi Girls Hostel,2,false
